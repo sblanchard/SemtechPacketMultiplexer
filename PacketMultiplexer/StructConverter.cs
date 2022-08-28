@@ -208,8 +208,7 @@ namespace PacketMultiplexer
 
         public static byte[] Pack(object[] items)
         {
-            string dummy = "";
-            return Pack(items, true, out dummy);
+            return Pack(items, true, out _);
         }
     }
 }

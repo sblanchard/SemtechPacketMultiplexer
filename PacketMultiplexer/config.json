@@ -1,6 +1,6 @@
 {
     "gateway_ID": "AA555A0000000000",
-    "server_address": "127.0.0.1",
-    "serv_port_up": 1680,
-    "serv_port_down": 1680  
+    "server_address": "192.168.1.45",
+    "serv_port_up": 1700,
+    "serv_port_down": 1700  
 }

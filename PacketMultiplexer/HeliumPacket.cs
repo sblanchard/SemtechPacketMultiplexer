@@ -24,6 +24,6 @@ namespace PacketMultiplexer
             foreach(var b in packetbytes) { bytes.Append(b); }            
             bytes.Append(identifier.Ident);
         }
-    };
+    } 
 }
-}
+ 

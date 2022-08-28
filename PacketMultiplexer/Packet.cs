@@ -1,11 +1,7 @@
 ﻿using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Net;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace PacketMultiplexer
 {
@@ -79,55 +75,42 @@ namespace PacketMultiplexer
         public List<TxPk> txpk { get; set; } = new();
         public Status stat { get; set; }
         public IPEndPoint FromEndPoint { get; set; }
+        public string Json { get; set; }
 
         public Packet()
         {
 
-        }
-
-        public void IncrementMAC()
-        {
-            //D8-BB-C1-91-99-3F
-            var last = GatewayMAC.Substring(14, 2);
-            var first = GatewayMAC[..14];
-            var numLast = int.Parse(last);
-            numLast++;
-            if (numLast < 10)
-            {
-                GatewayMAC = first + $"0{numLast}";
-            }
-            else
-            {
-                GatewayMAC = first + $"{numLast}";
-            }
-        }
-
-        public Packet(byte[] data)
-        {
-            if (data?.Length >= 4) MessageType = PacketUtil.GetMessageType(data);
-            if (data?.Length >= 12) GatewayMAC = PacketUtil.GetGatewayId(data);
-
-            if (data?.Length > 12)
-            {
-                var strData = Encoding.Default.GetString(data.Skip(12).ToArray());
-                if (strData.StartsWith("{\"rxpk\"") || strData.StartsWith("{\"stat\""))
-                {
-                    var pkt = JsonConvert.DeserializeObject<Packet>(strData);
-                }
-            }
-        }
-
-        public byte[] ToBytes()
+        } 
+       
+        public byte[] ToBytes(string gateway = "")
         {
             byte[] retBytes = null;
+            byte[] macBytes = gateway == string.Empty
+                ? GatewayMAC.Split(':').Select(x => Convert.ToByte(x, 16)).ToArray()
+                : gateway.Split(':').Select(x => Convert.ToByte(x, 16)).ToArray();
 
-            byte[] macBytes = GatewayMAC.Split(':').Select(x => Convert.ToByte(x, 16)).ToArray();
-             
-            if (MessageType.Name == PacketType.PUSH_DATA.Name)
-            {
-                var json = JsonConvert.SerializeObject(rxpk);
-                var fields = new object[] { 2, new Random().Next(int.MaxValue), 0x00, macBytes, json };
-                retBytes = StructConverter.Pack(fields);
+            if (MessageType.Ident == PacketType.PUSH_DATA.Ident)
+            {                
+                var json = JsonConvert.SerializeObject(rxpk,Formatting.None);
+                json = "{\"rxpk\":" + json + "}";
+                var jsonBytes = Encoding.UTF8.GetBytes(json);
+                List<byte> data = new()
+                {
+                    2,
+                    (byte)new Random().Next(byte.MaxValue),
+                    (byte)new Random().Next(byte.MaxValue),
+                    MessageType.Ident
+                };
+                foreach (var item in macBytes)
+                {
+                    data.Add(item);
+                }
+                foreach (var item in jsonBytes)
+                {
+                    data.Add(item);
+                }
+
+                retBytes = data.ToArray();           
             }
             return retBytes;
         }
@@ -136,8 +119,8 @@ namespace PacketMultiplexer
         {
             foreach (var rx in rxpk)
             {
-                rx.rssi = -new Random().Next(90, 119);
-                rx.lsnr = -Math.Round(new Random().NextDouble() * 4, 1);
+                rx.rssi = - new Random().Next(90, 119);
+                rx.lsnr = - Math.Round(new Random().NextDouble() * 4, 1);
                 
             }
         }
@@ -146,8 +129,18 @@ namespace PacketMultiplexer
         {
             foreach (var rx in rxpk)
             {
-                rx.time = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+                //rx.tmst = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
             }
+        }
+
+        internal void SetGatewayId(string v)
+        {
+            throw new NotImplementedException();
+        }
+
+        public byte[] ToBytes()
+        {
+            throw new NotImplementedException();
         }
     }
 
