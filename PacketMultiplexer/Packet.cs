@@ -1,11 +1,11 @@
 ﻿using Newtonsoft.Json;
 using System.Globalization;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Text;
 
 namespace PacketMultiplexer
 {
-
     /*txpk
         Name  |  Type  | Function
         :----:|:------:|--------------------------------------------------------------
@@ -63,55 +63,61 @@ namespace PacketMultiplexer
     */
 
 
-
     public class Packet : IPacket
     {
+        private uint tmst_offset = 0;
+
         public PacketType MessageType { get; set; }
         public int Protocol { get; set; }
         public byte[] RandomToken { get; set; }
         public int PushDataId { get; set; }
         public string GatewayMAC { get; set; }
+        public string NewGatewayMAC { get; set; }
+
         public List<RxPk> rxpk { get; set; } = new();
         public List<TxPk> txpk { get; set; } = new();
         public Status stat { get; set; }
         public IPEndPoint FromEndPoint { get; set; }
-        public string Json { get; set; }
-
-        public Packet()
-        {
-
-        } 
-       
-        public byte[] ToBytes(string gateway = "")
+        public string JsonRx => JsonConvert.SerializeObject(rxpk, Formatting.None);
+        public string JsonTx => JsonConvert.SerializeObject(txpk, Formatting.None);
+        public string JsonStat => JsonConvert.SerializeObject(stat, Formatting.None);
+        public byte[] ToBytes()
         {
             byte[] retBytes = null;
-            byte[] macBytes = gateway == string.Empty
-                ? GatewayMAC.Split(':').Select(x => Convert.ToByte(x, 16)).ToArray()
-                : gateway.Split(':').Select(x => Convert.ToByte(x, 16)).ToArray();
-
-            if (MessageType.Ident == PacketType.PUSH_DATA.Ident)
-            {                
-                var json = JsonConvert.SerializeObject(rxpk,Formatting.None);
+            byte[] macBytes = string.IsNullOrEmpty(NewGatewayMAC) ? PhysicalAddress.Parse(GatewayMAC.Replace(":","")).GetAddressBytes() : PhysicalAddress.Parse(NewGatewayMAC.Replace(":","")).GetAddressBytes();
+            byte[] jsonBytes = null;
+            //if (MessageType.Ident == PacketType.PUSH_DATA.Ident)
+            //{ 
+            if (rxpk.Count > 0)
+            {
+                var json = JsonConvert.SerializeObject(rxpk, Formatting.None);
                 json = "{\"rxpk\":" + json + "}";
-                var jsonBytes = Encoding.UTF8.GetBytes(json);
-                List<byte> data = new()
-                {
-                    2,
-                    (byte)new Random().Next(byte.MaxValue),
-                    (byte)new Random().Next(byte.MaxValue),
-                    MessageType.Ident
-                };
-                foreach (var item in macBytes)
-                {
-                    data.Add(item);
-                }
-                foreach (var item in jsonBytes)
-                {
-                    data.Add(item);
-                }
-
-                retBytes = data.ToArray();           
+                jsonBytes = Encoding.UTF8.GetBytes(json);
             }
+            if (txpk.Count > 0)
+            {
+                var json = JsonConvert.SerializeObject(txpk, Formatting.None);
+                json = "{\"txpk\":" + json + "}";
+                jsonBytes = Encoding.UTF8.GetBytes(json);
+            }
+            if (stat != null)
+            {
+                var json = JsonConvert.SerializeObject(stat, Formatting.None);
+                json = "{\"stat\":" + json + "}";
+                jsonBytes = Encoding.UTF8.GetBytes(json);
+            }
+
+            List<byte> data = new()
+            {
+                2,
+                (byte)new Random().Next(byte.MaxValue),
+                (byte)new Random().Next(byte.MaxValue),
+                MessageType.Ident
+            };
+            data.AddRange(macBytes);
+            data.AddRange(jsonBytes);
+            retBytes = data.ToArray();
+            //}
             return retBytes;
         }
 
@@ -120,8 +126,7 @@ namespace PacketMultiplexer
             foreach (var rx in rxpk)
             {
                 rx.rssi = - new Random().Next(90, 119);
-                rx.lsnr = - Math.Round(new Random().NextDouble() * 4, 1);
-                
+                rx.lsnr = - Math.Round(new Random().NextDouble() * 4, 1);                
             }
         }
 
@@ -129,44 +134,31 @@ namespace PacketMultiplexer
         {
             foreach (var rx in rxpk)
             {
-                //rx.tmst = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+                var ts = DateTime.UtcNow;
+
+                if(!string.IsNullOrEmpty(rx.time))
+                {
+                    var tsStr = rx.time;
+                    if(tsStr.EndsWith("Z"))
+                    {
+                        tsStr = tsStr[..^1];
+                        ts = DateTime.Parse(tsStr);
+                        if (Math.Abs((ts-DateTime.UtcNow).TotalSeconds) > 1.5)
+                        {
+                            ts = DateTime.UtcNow;
+                        }
+                    }
+                }
+                var ts_midnight = new DateTime(ts.Year, ts.Month, ts.Day, 0, 0, 0, 0);
+                var elapsed_us = (ts - ts_midnight).TotalSeconds * 1e6;
+                var elapsed_us_u32 = (uint)elapsed_us;
+
+                rx.tmst = elapsed_us_u32 + tmst_offset;
+
+                //tmst_offset = rx.tmst - elapsed_us_u32;
+
+                rx.time = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
             }
         }
-
-        internal void SetGatewayId(string v)
-        {
-            throw new NotImplementedException();
-        }
-
-        public byte[] ToBytes()
-        {
-            throw new NotImplementedException();
-        }
-    }
-
-    [JsonObject(Title = "txpk")]
-    public class TxPk : IMessage
-    {
-        public bool imme { get; set; }
-        public double tmst { get; set; }
-        public double tmms { get; set; }
-        public ulong freq { get; set; }
-        public int rfch { get; set; }
-        public double powe { get; set; }
-        public string modu { get; set; }
-        public string datr { get; set; }
-        public string codr { get; set; }
-        public uint fdev { get; set; }
-        public bool ipol { get; set; }
-        public uint prea { get; set; }
-        public uint size { get; set; }
-        public string data { get; set; }
-        public bool ncrc { get; set; }
-    }
-
-    [JsonObject(Title = "txpk_ack")]
-    public class TxAck
-    {
-       public string error { get; set; }
     }
 }

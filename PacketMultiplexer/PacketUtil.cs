@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.NetworkInformation;
+﻿using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace PacketMultiplexer
 {
@@ -14,14 +10,14 @@ namespace PacketMultiplexer
         {
             if (packet.Length < 4)
                 throw new Exception("At least 4 bytes data expected");
-            return PacketType.Values.Where(i => i.Ident == packet[3]).First();
+            return PacketType.Values.Where(i => i.Ident == packet[3]).FirstOrDefault();
         }
 
         public static string GetGatewayId(byte[] packet)
         {
             if (packet.Length < 12)
                 throw new Exception("At least 12 bytes data expected");
-            return BitConverter.ToString(packet.Skip(4).Take(8).ToArray());
+            return BitConverter.ToString(packet.Skip(4).Take(8).ToArray()).Replace("-", ":");
         }
 
         public static byte[] SetGatewayId(byte[] packet, string mac)
@@ -35,25 +31,14 @@ namespace PacketMultiplexer
             return packet;
         }
 
-
-
         public static string CreateMD5(string input)
-        {
-            // Use input string to calculate MD5 hash
+        {            
             using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create())
             {
                 byte[] inputBytes = Encoding.ASCII.GetBytes(input);
                 byte[] hashBytes = md5.ComputeHash(inputBytes);
 
-                return Convert.ToHexString(hashBytes); // .NET 5 +
-
-                // Convert the byte array to hexadecimal string prior to .NET 5
-                // StringBuilder sb = new System.Text.StringBuilder();
-                // for (int i = 0; i < hashBytes.Length; i++)
-                // {
-                //     sb.Append(hashBytes[i].ToString("X2"));
-                // }
-                // return sb.ToString();
+                return Convert.ToHexString(hashBytes); 
             }
         }
 

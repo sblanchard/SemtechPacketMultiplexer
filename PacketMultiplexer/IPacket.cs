@@ -7,7 +7,5 @@ namespace PacketMultiplexer
         IPEndPoint FromEndPoint { get; set; }
         string GatewayMAC { get; set; }
         PacketType MessageType { get; set; }
-        
-        byte[] ToBytes();
     }
 }

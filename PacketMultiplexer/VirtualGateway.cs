@@ -1,17 +1,24 @@
 ﻿using Newtonsoft.Json;
+using PacketMultiplexer.Settings;
 using Serilog;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
+using Timer = System.Threading.Timer;
+using System;
+using System.Linq;
 
 namespace PacketMultiplexer
 {
     internal class VirtualGateway
     {
-        private static readonly Dictionary<string, IPEndPoint> MacAddresses = new();
-        private bool isPoC;
-
+        private readonly Dictionary<string, IPEndPoint> MacAddresses = new();
+        private ConcurrentQueue<Packet> Packets = new(); 
+        public List<Miner> Miners { get; set; } = new List<Miner>();
+       
         /// <summary>
         /// Received packets count
         /// </summary>
@@ -21,86 +28,226 @@ namespace PacketMultiplexer
         /// </summary>
         public uint TxCount { get; set; }
 
-        public VirtualGateway(IPEndPoint listenAddress, string macAddress)
+        public VirtualGateway(IPEndPoint listenAddress, string macAddress, List<Miner> miners)
         {
             ListenAddress = listenAddress;
             MacAddress = macAddress;
-
+            Miners = miners;
 
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Debug()
                 .WriteTo.Console()
                 .WriteTo.File("logs/myapp.txt", rollingInterval: RollingInterval.Day)
                 .CreateLogger();
+
+           var keepAlive = new Timer(OnKeepAlive, null, 10000, 10000);
+           var sendStat = new Timer(SendStat, null, 10000, 30000);
+
+        }
+
+        private void SendStat(object? state)
+        {
+            foreach (var miner in Miners)
+            {
+                Packet packet = new()
+                {
+                    stat = new Status(),
+                    GatewayMAC = miner.GatewayId,
+                    MessageType = PacketType.PUSH_DATA
+                };
+                packet.stat.time = string.Concat(DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture).AsSpan(0,19), " GMT");
+                packet.stat.ackr = 100;
+                packet.stat.rxnb = RxCount;
+                packet.stat.rxok = RxCount;
+                UDPSend(miner.Server, miner.PortUp, packet.ToBytes());
+            }
+        }
+
+        private void OnKeepAlive(object? state)
+        {
+            List<byte> pullData = new()
+            {
+                PacketType.PULL_DATA.Ident,
+                2,
+                (byte)new Random().Next(byte.MaxValue),
+                (byte)new Random().Next(byte.MaxValue)
+            };
+            byte[] macBytes = PhysicalAddress.Parse(MacAddress).GetAddressBytes();
+            foreach (var mcbyte in macBytes)
+            {
+                pullData.Add(mcbyte);
+            }
+
+            foreach (var miner in Miners)
+            {
+                UDPSend(miner.Server, miner.PortDown, pullData.ToArray());
+            }
         }
 
         public IPEndPoint ListenAddress { get; set; }
         public IPEndPoint SendToAddress { get; set; }
-
         public string MacAddress { get; set; }
 
         public void Start()
         {
-            Listen();
+            UdpClient[] minerClients = new UdpClient[Miners.Count];
+            Task.Run(ListenGateway);
+            Log.Information($"Gateway {MacAddress} Start");
+            Thread.Sleep(1000);
+
+            for (int i = 0; i <= minerClients.Length-1; i++)
+            {
+                var client = minerClients[i];
+                client = new(Miners[i].PortUp);
+                Log.Information($"Miner {Miners[i].GatewayId} Start"); 
+                Task.Run(() => ListenMiner(client));
+            }
+
+            Task.Run(HandlePacketQueue);
+            Log.Information("Packet Queue Processor Start");
         }
 
-        private void Listen()
+        private void HandlePacketQueue()
+        {
+            while(true)
+            {
+                if (Packets.TryDequeue(out var packet))
+                {
+                    if (!MacAddresses.ContainsKey(packet.GatewayMAC)) continue;
+
+                    //pass through to original miner
+                    //packet.UpdateTime();
+                    //UDPSend(endpoint, packet.ToBytes());
+
+                    //send poc to all
+                    if (packet.MessageType == PacketType.PUSH_DATA)
+                    {
+                        foreach (var miner in Miners)
+                        {
+                            packet.NewGatewayMAC = miner.GatewayId;
+                            packet.UpdateTime();
+                            UDPSend(miner.Server, miner.PortUp, packet.ToBytes());
+                        }
+                    }
+
+                    if (packet.MessageType == PacketType.PULL_RESP)
+                    {
+                        foreach (var miner in Miners)
+                        {
+                            var endpoint = MacAddresses[miner.GatewayId];
+
+                            packet.NewGatewayMAC = miner.GatewayId;
+                            packet.UpdateTime();
+                            UDPSend(endpoint, packet.ToBytes());
+                        }
+                    }
+                }
+                Thread.Sleep(10);
+            }
+        }
+
+        private void ListenGateway()
         {
             try
             {
-
                 UdpClient udpServer = new(ListenAddress.Port);
                 Log.Information($"Binding to port {ListenAddress.Port}");
 
                 while (true)
                 {
-                    var remoteEP = new IPEndPoint(IPAddress.Any, 1700);
+                    var remoteEP = new IPEndPoint(IPAddress.Any, 1680);
                     var data = udpServer.Receive(ref remoteEP);
-
                     string strData = Encoding.Default.GetString(data);
-                    Packet? packet = new();
 
-                    isPoC = false;
+                    var msgType = PacketUtil.GetMessageType(data);
+                    var gwMac = PacketUtil.GetGatewayId(data);
+                    
+                    if (data?.Length > 12)
+                    {
+                        var str = Encoding.Default.GetString(data.Skip(12).ToArray());
+                        if (str.StartsWith("{\"rxpk\"") || str.StartsWith("{\"txpk\"") || str.StartsWith("{\"stat\""))
+                        {
+                            var packet = JsonConvert.DeserializeObject<Packet>(str);
+                            if (packet == null) continue;
+                            if (data?.Length >= 4) packet.MessageType = PacketUtil.GetMessageType(data);
+                            if (data?.Length >= 4) packet.RandomToken = PacketUtil.GetRandomToken(data);
+                            if (data?.Length >= 12) packet.GatewayMAC = PacketUtil.GetGatewayId(data);
+
+                            switch (packet.MessageType.Name)
+                            {
+                                case "PUSH_DATA":
+                                    if (packet.rxpk.Any(s => s.size == 52))
+                                    { 
+                                        PacketUtil.SavePacketToFile("POC", data);
+                                    }
+                                    HandlePushData(packet, remoteEP);
+                                    UDPSend(remoteEP, new byte[] { data[0], data[1], data[2], 0x01 });
+                                    RxCount += (uint)packet.rxpk.Count;
+                                    break;
+                                case "PULL_DATA":
+                                    HandlePullData(packet, remoteEP);
+                                    UDPSend(remoteEP, new byte[] { data[0], data[1], data[2], 0x04 });
+                                    break;
+                                case "PULL_RESP":
+                                    HandlePullResp(packet, remoteEP);
+                                    break;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Log.Error(e,"Error");
+            }
+        }
+
+        private void ListenMiner(UdpClient udpClient)
+        {
+            try
+            {
+                while (true)
+                {
+                    var remoteEP = new IPEndPoint(IPAddress.Any, 1680);
+                    var data = udpClient.Receive(ref remoteEP);
+                    string strData = Encoding.Default.GetString(data);
+
+                  
+                    var msgType = PacketUtil.GetMessageType(data);
+                    var gwMac = PacketUtil.GetGatewayId(data);
 
                     if (data?.Length > 12)
                     {
                         var str = Encoding.Default.GetString(data.Skip(12).ToArray());
                         if (str.StartsWith("{\"rxpk\"") || str.StartsWith("{\"txpk\"") || str.StartsWith("{\"stat\""))
                         {
-                            packet = JsonConvert.DeserializeObject<Packet>(str);
-                            if (packet.rxpk.Any(s => s.size == 52))
+                            var packet = JsonConvert.DeserializeObject<Packet>(str);
+                            if (packet == null) continue;
+                            if (data?.Length >= 4) packet.MessageType = PacketUtil.GetMessageType(data);
+                            if (data?.Length >= 4) packet.RandomToken = PacketUtil.GetRandomToken(data);
+                            if (data?.Length >= 12) packet.GatewayMAC = PacketUtil.GetGatewayId(data);
+
+                            switch (packet.MessageType.Name)
                             {
-                                isPoC = true;
-                                PacketUtil.SavePacketToFile("POC", data);
-                                Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.Json}");
+                                case "PUSH_DATA":
+                                    if (packet.rxpk.Any(s => s.size == 52))
+                                    {
+                                        PacketUtil.SavePacketToFile("POC", data);
+                                        Log.Information("\t POC POC POC");
+                                    }
+                                    HandlePushData(packet, remoteEP);
+
+                                    UDPSend(remoteEP, new byte[] { data[0], data[1], data[2], 0x01 });
+                                    RxCount += (uint)packet.rxpk.Count;
+                                    break;
+                                case "PULL_DATA":
+                                    HandlePullData(packet, remoteEP);
+                                    UDPSend(remoteEP, new byte[] { data[0], data[1], data[2], 0x04 });
+                                    break;
+                                case "PULL_RESP":
+                                    HandlePullResp(packet, remoteEP);
+                                    break;
                             }
-                        }
-                    }
-
-                    if (packet != null)
-                    {                        
-                        if (isPoC)
-                        {                             
-                            packet.rxpk[0].rssi = -new Random().Next(90, 120);
-                            packet.rxpk[0].rssis = packet.rxpk[0].rssi;
-                            packet.rxpk[0].lsnr = -Math.Round(new Random().NextDouble() * 4, 1);
-                            Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.Json}");
-                            Log.Information($"Send to 192.168.1.100");
-                            UDPSend("192.168.1.100", 1680, packet.ToBytes("AA:55:5A:00:00:00:33:33"));
-                            
-                            packet.rxpk[0].rssi = -new Random().Next(90, 120);
-                            packet.rxpk[0].rssis = packet.rxpk[0].rssi;
-                            packet.rxpk[0].lsnr = -Math.Round(new Random().NextDouble() * 4, 1);
-                            Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.Json}");
-                            Log.Information($"Send to 192.168.1.91");
-                            UDPSend("192.168.1.91", 1680, packet.ToBytes("AA:55:5A:00:00:00:22:22")); 
-
-                            packet.rxpk[0].rssi = -new Random().Next(90, 120);
-                            packet.rxpk[0].rssis = packet.rxpk[0].rssi;
-                            packet.rxpk[0].lsnr = -Math.Round(new Random().NextDouble() * 4, 1);
-                            Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.Json}");
-                            Log.Information($"Send to 192.168.1.97");
-                            UDPSend("192.168.1.97", 1680, packet.ToBytes("AA:55:5A:00:00:00:11:11"));
                         }
                     }
                 }
@@ -110,135 +257,58 @@ namespace PacketMultiplexer
                 Log.Error(e.ToString());
             }
         }
-        private void ListenProtocol()
+
+        private void HandlePushData(Packet packet, IPEndPoint endPoint)
         {
-            try
+            if (!MacAddresses.ContainsKey(packet.GatewayMAC))
             {
+                MacAddresses.Add(packet.GatewayMAC, endPoint);
+                Log.Information($"Discovered Gateway MAC: {packet.GatewayMAC} at {endPoint.Address}:{endPoint.Port}");
+            }
+            MacAddresses[packet.GatewayMAC] = endPoint;
 
-                UdpClient udpServer = new(ListenAddress.Port);
-
-                while (true)
+            if (packet.rxpk.Count > 0)
+            {
+                Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.JsonRx}");
+                foreach (var miner in Miners)
                 {
-                    var remoteEP = new IPEndPoint(IPAddress.Any, 1680);
-                    var data = udpServer.Receive(ref remoteEP);
-
-                    var remoteAddress = remoteEP.Address;
-                    var remotePort = remoteEP.Port;
-
-
-                    string strData = Encoding.Default.GetString(data);
-                    UDPSend(remoteEP, data);
-                    UDPSend(remoteEP.Address.ToString(),1681, data);
-
-                    Packet? packet = new();
-
-                    if (data?.Length > 12)
-                    {
-                        var str = Encoding.Default.GetString(data.Skip(12).ToArray());
-                        if (str.StartsWith("{\"rxpk\"") || str.StartsWith("{\"stat\""))
-                        {
-                            packet = JsonConvert.DeserializeObject<Packet>(str);
-                            packet.Json = str;
-                        }
-                    }
-
-                    if (packet != null)
-                    {
-                        if (data?.Length >= 4) packet.MessageType = PacketUtil.GetMessageType(data);
-                        if (data?.Length >= 4) packet.RandomToken = PacketUtil.GetRandomToken(data);
-                        if (data?.Length >= 12) packet.GatewayMAC = PacketUtil.GetGatewayId(data);
-                    }
-
-                    if (packet == null) continue;
-
-                    if (!MacAddresses.ContainsKey(packet.GatewayMAC)) MacAddresses.Add(packet.GatewayMAC, remoteEP);
-                    MacAddresses[packet.GatewayMAC] = remoteEP; //keep it up to date
-                    packet.FromEndPoint = remoteEP;
-
-                    if (packet.rxpk.Any(s => s.size == 52))
-                    {
-                        isPoC = true;
-                        PacketUtil.SavePacketToFile("POC", data);
-                    }
-                    
-
-                    switch (packet.MessageType.Name)
-                    {
-                        case "PUSH_DATA":
-                            //PUSH_DATA messages from gateways are used to inform the miner of received LoRa packets.
-                            //Each received LoRa packet, regardless of which gateway sent the message, is FORWARDED TO ALL GATEWAYS.
-                            //Since multiple gateways may receive the same message, a cache is of recent messages is kept and duplicate LoRa packets are dropped.
-                            //The metadata such as gateway MAC address is modified so each miner thinks it is communicating with a unique gateway.
-                            //The RSSI, SNR, and timestamp (tmst) fields are also modified to be in acceptable ranges and to ensure the timestamps are in order
-                            //and increment as expected regardless of real gateway (we cant assume timestamps are synchronized if gateway doesnt have GPS).
-                            PacketUtil.SavePacketToFile(packet.MessageType.Name + $"_{packet.GatewayMAC}_Stat",data);
-                            Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.Json}");
-                            if (packet.stat != null && packet.stat.time != null) break;//stat msg
-                            UDPSend("192.168.1.92", 1680, data);
-                            //foreach (var gateway in MacAddresses)
-                            //{
-                            //    packet.IncrementMAC();
-                            //    packet.RandomiseSignal();
-                            //    packet.UpdateTime();
-                            //    //var bytes = packet.ToBytes();
-                            //    //UDPSend(gateway.Value, packet.ToBytes());
-                            //}
-
-                            break;
-                        case "PUSH_ACK":                            
-                            if (Log.IsEnabled(Serilog.Events.LogEventLevel.Information)) Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name}");
-                            //UDPSend("192.168.1.100", 1680, data);
-                            //do nothing
-                            break;
-                        case "PULL_DATA":                            
-                            Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.Json}"); 
-                            PacketUtil.SavePacketToFile(packet.MessageType.Name, data);
-                            //PULL_DATA messages from gateways are used to ensure a communication path through any NAT or router is open.
-                            //These messages contain the MAC address (same as Gateway_ID) as well as the origin IP address and port.
-                            //This mapping of gateway MAC to (IP, Port) is saved so the software knows where to send PULL_RESP messages.
-                            if (MacAddresses.ContainsKey(packet.GatewayMAC))
-                            {
-                                MacAddresses[packet.GatewayMAC] = packet.FromEndPoint;
-                            }
-                            break;
-                        case "PULL_ACK":
-                            //do nothing 
-                            break;
-                        case "PULL_RESP":
-                            Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.Json}");
-                            PacketUtil.SavePacketToFile(packet.MessageType.Name + $"_{packet.GatewayMAC}", data);
-                            UDPSend("192.168.1.92", 1680, data);
-
-                            //PULL_RESP messages received from miners contain data to transmit (usually for device JOINs or PoC).
-                            //These are FORWARDED UNMODIFIED TO THE GATEWAY WITH THE SAME MAC ADDRESS AS THE VIRTUAL GATEWAY INTERFACING WITH THE MINER,
-                            //if it exists, and a PULL_DATA was received from the gateway.
-                            //This ensures transmit behavior of a miner remains consistent.
-                            //This restriction may be removed in later revisions.
-                            //To ensure PULL_RESPs are received by the other miners, a fake PUSH_DATA payload is created for every PULL_RESP with simulated RSSI, SNR, and timestamp(currently hardcoded RSSI and SNR).
-                            //This fake PUSH_DATA runs through the same process as real ones except it is not forwarded to the miner that sent the PULL_RESP(so gateways don't receive their own transmissions).
-
-                            break;
-                        case "TX_ACK":
-                            //do nothing
-                            break;
-                    }
+                    packet.RandomiseSignal();
+                    packet.UpdateTime();
+                    packet.NewGatewayMAC = miner.GatewayId;
+                    Packets.Enqueue(packet);
+                    Log.Information($"Enqueued {packet.MessageType.Name} {packet.JsonRx} {packet.NewGatewayMAC}");
                 }
+            }
+            //if(packet.rxpk.Count == 0 && packet.stat.time != string.Empty)
+            //{
+            //    Packets.Enqueue(packet);
+            //    Log.Information($"Enqueued STAT {packet.MessageType.Name} {packet.JsonStat} {packet.GatewayMAC}");
+            //}
+        }
 
-            }
-            catch (Exception ex)
+        private void HandlePullData(Packet packet, IPEndPoint endPoint)
+        {
+            if (!MacAddresses.ContainsKey(packet.GatewayMAC))
             {
-                Log.Error(ex, "Error");
+                MacAddresses.Add(packet.GatewayMAC, endPoint);
+                Log.Information($"Discovered Gateway MAC: {packet.GatewayMAC} at {endPoint.Address}:{endPoint.Port}");
             }
-            finally
-            {
-                Log.CloseAndFlush();
-            }
+            MacAddresses[packet.GatewayMAC] = endPoint;
+        }
+
+        private void HandlePullResp(Packet packet,IPEndPoint endPoint)
+        {
+            Log.Information($"Handle PULL_RESP from {packet.GatewayMAC} at {endPoint.Address}:{endPoint.Port}");
+            
+            var tx = packet.txpk;
+            tx[0].powe -= 10;
+            Packets.Enqueue(packet);
         }
 
         static void UDPSend(IPEndPoint endPoint, byte[] packet)
         {
             var client = new UdpClient();            
-            client.Connect(endPoint.Address,1680);
+            client.Connect(endPoint.Address,endPoint.Port);
             client.Send(packet);
         }
 
@@ -247,26 +317,6 @@ namespace PacketMultiplexer
             var client = new UdpClient();            
             client.Connect(host,port);            
             client.Send(packet);
-        }
-
-        public byte[] GetStat()
-        {             
-            var payload = new Status
-            {
-                time = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
-                rxnb = RxCount,
-                rxok = RxCount,
-                rxfw = RxCount,
-                txnb = TxCount,
-                dwnb = TxCount,
-                ackr = 100
-            };
-            return GetPushData(payload);
-        }
-
-        public void GetPushData(IMessage message)
-        {
-
         }
 
         public byte[] GetPushData(Status message)

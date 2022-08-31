@@ -44,7 +44,7 @@ namespace PacketInspector
                 {
                     var pkt = JsonSerializer.Deserialize<Packet>(strData);
                     pkt.MessageType = PacketUtil.GetMessageType(data);
-                    pkt.GatewayMAC = PacketUtil.GetGatewayId(data);
+                    pkt.GatewayMAC = PacketUtil.GetGatewayId(data).Replace("-",":");
                     var rx = pkt.rxpk[0];
                     if(rx != null)
                     {
@@ -65,13 +65,12 @@ namespace PacketInspector
             if (data?.Length > 12)
             {
                 var strData = Encoding.Default.GetString(data.Skip(12).ToArray());
-      //          strData = "{\"rxpk\":" + strData + "}";
 
                 if (strData.StartsWith("{\"rxpk\"") || strData.StartsWith("{\"stat\""))
                 {
                     var pkt = JsonSerializer.Deserialize<Packet>(strData);
                     pkt.MessageType = PacketUtil.GetMessageType(data);
-                    pkt.GatewayMAC = PacketUtil.GetGatewayId(data);
+                    pkt.GatewayMAC = PacketUtil.GetGatewayId(data).Replace("-", ":"); ;
                     var rx = pkt.rxpk[0];
                     if (rx != null)
                     {

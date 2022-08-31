@@ -1,30 +1,29 @@
 ﻿using PacketMultiplexer;
+using System.Net.NetworkInformation;
+using System.Net;
 using System.Text.Json;
+using PacketMultiplexer.Settings;
 
 namespace ler_Manager
 {
     class Program
     {
-        private readonly static List<VirtualGateway> VirtualGateways = new();
-
 
         static void Main(string[] args)
         {
-            string fileName = "config.json";
+            //DisplayDirectedBroadcastAddresses();
+
+            string fileName = @".\Settings\config.json";
             string jsonString = File.ReadAllText(fileName);
-            Config config = JsonSerializer.Deserialize<Config>(jsonString);
+            var configs = JsonSerializer.Deserialize<List<Config>>(jsonString);
 
-            VirtualGateways.Add
-                (new VirtualGateway
-                (new System.Net.IPEndPoint
-                (System.Net.IPAddress.Parse(config.Server),
-                config.PortDown),
-                config.GatewayId));
+            //string minerFileName = "miners.json";
+            //string minersjsonString = File.ReadAllText(minerFileName);
+            //List<Miner> miners = JsonSerializer.Deserialize<List<Miner>>(minersjsonString);
 
-            foreach (var gateway in VirtualGateways)
-            {
-                gateway.Start();
-            }
+            VirtualGatewayCollection gatewayCollection = new VirtualGatewayCollection(configs);
+
+          
 
             Console.ReadLine();
 

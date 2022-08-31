@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace PacketMultiplexer
+namespace PacketMultiplexer.Settings
 {
     public class Config
     {
@@ -12,5 +12,7 @@ namespace PacketMultiplexer
         public int PortUp { get; set; }
         [JsonPropertyName("serv_port_down")]
         public int PortDown { get; set; }
+        [JsonPropertyName("miners")]
+        public List<Miner> Miners { get; set; }
     }
 }

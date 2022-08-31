@@ -25,7 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="config.json">
+    <None Update="Settings\config.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Settings\miners.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="packet.json">
