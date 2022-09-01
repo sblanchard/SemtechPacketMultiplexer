@@ -17,6 +17,7 @@ namespace PacketMultiplexer
 
         public VirtualGatewayCollection(List<Config> configs)
         {
+
             foreach (var config in configs)
             {
                 VirtualGateways.Add(new VirtualGateway
@@ -25,6 +26,8 @@ namespace PacketMultiplexer
                                     config.GatewayId, 
                                     config.Miners));
             }
+
+           
 
             Thread.Sleep(1000);
 

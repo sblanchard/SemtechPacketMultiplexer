@@ -5,7 +5,12 @@ VisualStudioVersion = 17.2.32630.192
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PacketMultiplexer", "PacketMultiplexer\PacketMultiplexer.csproj", "{A40CFFAF-2298-47D5-8640-B34B9B0A94F2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PacketInspector", "PacketInspector\PacketInspector.csproj", "{4B1F0F0A-FBEE-4F4D-9B4A-42DEAC1275A2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PacketInspector", "PacketInspector\PacketInspector.csproj", "{4B1F0F0A-FBEE-4F4D-9B4A-42DEAC1275A2}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{189277C7-408B-43F0-B909-1F4B30406D89}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

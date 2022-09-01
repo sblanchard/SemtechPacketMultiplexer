@@ -12,6 +12,8 @@ namespace PacketMultiplexer.Settings
         public int PortUp { get; set; }
         [JsonPropertyName("serv_port_down")]
         public int PortDown { get; set; }
+        [JsonPropertyName("gatewayIsMiner")]
+        public bool GatewayIsMiner { get; set; }
         [JsonPropertyName("miners")]
         public List<Miner> Miners { get; set; }
     }

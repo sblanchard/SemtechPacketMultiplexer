@@ -4,12 +4,9 @@ using Serilog;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using Timer = System.Threading.Timer;
-using System;
-using System.Linq;
 
 namespace PacketMultiplexer
 {
@@ -19,7 +16,7 @@ namespace PacketMultiplexer
         private ConcurrentQueue<Packet> Packets = new();
         public List<Miner> Miners { get; set; } = new List<Miner>();
         private readonly object sendLock = new object();
-
+        private Dictionary<string, RxPk> RxpkCache = new();
         /// <summary>
         /// Received packets count
         /// </summary>
@@ -78,6 +75,26 @@ namespace PacketMultiplexer
                 packet.stat.dwnb = tx;
                 UDPSend(miner.Server, miner.PortUp, packet.ToBytes());
             }
+
+            //For gateway
+            Packet p = new()
+            {
+                stat = new Status(),
+                GatewayMAC = MacAddress,
+                MessageType = PacketType.PUSH_DATA
+            };
+            var rxg = RxCount.Where(g => g.Key == MacAddress).FirstOrDefault().Value;
+            var txg = TxCount.Where(g => g.Key == MacAddress).FirstOrDefault().Value;
+
+            p.stat.time = string.Concat(DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture).AsSpan(0, 19), " GMT");
+            p.stat.ackr = 100;
+            p.stat.rxnb = rxg;
+            p.stat.rxok = rxg;
+            p.stat.rxfw = rxg;
+            p.stat.txnb = txg;
+            p.stat.dwnb = txg;
+
+            UDPSend(ListenAddress.Address.ToString(), ListenAddress.Port, p.ToBytes());
         }
 
         /// <summary>
@@ -97,6 +114,17 @@ namespace PacketMultiplexer
 
                 UDPSend(miner.Server, miner.PortDown, packet.ToBytes());
             }
+
+            //For gateway
+            Packet p = new()
+            {
+                GatewayMAC = MacAddress,
+                MessageType = PacketType.PULL_DATA,
+                Protocol = 2,
+            };
+
+            UDPSend(ListenAddress.Address.ToString(), ListenAddress.Port, p.ToBytes());
+
         }
 
         public IPEndPoint ListenAddress { get; set; }        
@@ -152,7 +180,7 @@ namespace PacketMultiplexer
                         }
                     }
                 }
-                Thread.Sleep(10);
+                Thread.Sleep(3);
             }
         }
 
@@ -221,9 +249,22 @@ namespace PacketMultiplexer
                         udpClient.Send(new byte[] { data[0], data[1], data[2], 0x01 }, 4, remoteEP);//ACK
                         if (packet.rxpk.Any(s => s.size == 52))
                         {
+                            var rx = packet.rxpk.FirstOrDefault();
+                            var key = rx.data + rx.datr + rx.codr;
+                            if(!RxpkCache.ContainsKey(key))
+                            {
+                                Log.Information("New Challenge");
+                                RxpkCache.Add(key, rx);
+                            }
+                            else
+                            {
+                                Log.Information("Duplicate Challenge");
+                                return;
+                            }
                             HandlePushData(packet, remoteEP);
                             PacketUtil.SavePacketToFile("POC", data);
                             Log.Information("\t POC POC POC");
+                            Log.Information(packet.JsonRx);
                         }
                         if (!RxCount.ContainsKey(gwMac)) RxCount.Add(gwMac, 0);
                         RxCount[gwMac] += (uint)packet.rxpk.Count;

@@ -1,9 +1,9 @@
 [
   {
-    "gateway_ID": "AA555A0000001111",
-    "server_address": "192.168.1.97",
-    "serv_port_up": 1680,
-    "serv_port_down": 1680,
+    "gateway_ID": "A840412198584150",
+    "server_address": "192.168.1.52",
+    "serv_port_up": 1700,
+    "serv_port_down": 1700,    
     "miners": [
       {
         "gateway_ID": "AA555A0000002222",
@@ -16,7 +16,13 @@
         "server_address": "192.168.1.21",
         "serv_port_up": 1683,
         "serv_port_down": 1683
-      }     
+      },
+      {
+        "gateway_ID": "AA555A0000001111",
+        "server_address": "192.168.1.97",
+        "serv_port_up": 1680,
+        "serv_port_down": 1680
+      } 
     ]
   }
 ]
