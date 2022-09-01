@@ -83,28 +83,23 @@ namespace PacketMultiplexer
         public string JsonStat => JsonConvert.SerializeObject(stat, Formatting.None);
         public byte[] ToBytes()
         {
-            byte[] retBytes = null;
             byte[] macBytes = string.IsNullOrEmpty(NewGatewayMAC) ? PhysicalAddress.Parse(GatewayMAC.Replace(":","")).GetAddressBytes() : PhysicalAddress.Parse(NewGatewayMAC.Replace(":","")).GetAddressBytes();
-            byte[] jsonBytes = null;
-            //if (MessageType.Ident == PacketType.PUSH_DATA.Ident)
-            //{ 
+            var json = string.Empty;
+
             if (rxpk.Count > 0)
             {
-                var json = JsonConvert.SerializeObject(rxpk, Formatting.None);
-                json = "{\"rxpk\":" + json + "}";
-                jsonBytes = Encoding.UTF8.GetBytes(json);
+                json = JsonConvert.SerializeObject(rxpk, Formatting.None);
+                json = "{\"rxpk\":" + json + "}"; 
             }
             if (txpk.Count > 0)
             {
-                var json = JsonConvert.SerializeObject(txpk, Formatting.None);
-                json = "{\"txpk\":" + json + "}";
-                jsonBytes = Encoding.UTF8.GetBytes(json);
+                json = JsonConvert.SerializeObject(txpk, Formatting.None);
+                json = "{\"txpk\":" + json + "}"; 
             }
             if (stat != null)
             {
-                var json = JsonConvert.SerializeObject(stat, Formatting.None);
-                json = "{\"stat\":" + json + "}";
-                jsonBytes = Encoding.UTF8.GetBytes(json);
+                json = JsonConvert.SerializeObject(stat, Formatting.None);
+                json = "{\"stat\":" + json + "}"; 
             }
 
             List<byte> data = new()
@@ -115,9 +110,9 @@ namespace PacketMultiplexer
                 MessageType.Ident
             };
             data.AddRange(macBytes);
-            data.AddRange(jsonBytes);
-            retBytes = data.ToArray();
-            //}
+            data.AddRange(Encoding.UTF8.GetBytes(json));
+            byte[]? retBytes = data.ToArray();
+
             return retBytes;
         }
 

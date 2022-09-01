@@ -7,7 +7,7 @@ namespace PacketMultiplexer
     {
         public static readonly PacketType PUSH_DATA = new("PUSH_DATA", 0x00);
         public static readonly PacketType PUSH_ACK = new("PUSH_ACK", 0x01);
-        public static readonly PacketType PULL_DATA = new("PUSH_ACK", 0x02);
+        public static readonly PacketType PULL_DATA = new("PULL_DATA", 0x02);
         public static readonly PacketType PULL_ACK = new("PULL_ACK", 0x04);
         public static readonly PacketType PULL_RESP = new("PULL_RESP", 0x03);
         public static readonly PacketType TX_ACK = new("TX_ACK", 0x05);

@@ -10,7 +10,7 @@ namespace PacketMultiplexer
         {
             if (packet.Length < 4)
                 throw new Exception("At least 4 bytes data expected");
-            return PacketType.Values.Where(i => i.Ident == packet[3]).FirstOrDefault();
+            return PacketType.Values.Where(i => i.Ident == packet[3]).First();
         }
 
         public static string GetGatewayId(byte[] packet)
