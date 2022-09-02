@@ -3,7 +3,7 @@ using System.Formats.Asn1;
 using System.Text;
 using System.Text.Json.Nodes;
 
-namespace PacketMultiplexer
+namespace PacketMultiplexer.Packets
 {
     /*rxpk
    Name |  Type  | Function
@@ -44,7 +44,7 @@ namespace PacketMultiplexer
     //16 "data":"QDDaAAFzkJFVAPJvAGpRL2smwKXs2tdv+VMD5MF2Nl+4RXZiXe3aH8v177O5lMVI17hDZw=="}]}
     [JsonObject(Title = "rxpk")]
     public class RxPk : IMessage
-    { 
+    {
         [JsonProperty(Order = 1)]
         public int jver { get; set; }
         [JsonProperty(Order = 2)]
@@ -80,6 +80,6 @@ namespace PacketMultiplexer
         [JsonProperty(Order = 17)]
         public int size { get; set; }
         [JsonProperty(Order = 18)]
-        public string data { get; set; } 
+        public string data { get; set; }
     }
 }

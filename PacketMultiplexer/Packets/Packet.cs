@@ -4,7 +4,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Text;
 
-namespace PacketMultiplexer
+namespace PacketMultiplexer.Packets
 {
     /*txpk
         Name  |  Type  | Function
@@ -83,23 +83,23 @@ namespace PacketMultiplexer
         public string JsonStat => JsonConvert.SerializeObject(stat, Formatting.None);
         public byte[] ToBytes()
         {
-            byte[] macBytes = string.IsNullOrEmpty(NewGatewayMAC) ? PhysicalAddress.Parse(GatewayMAC.Replace(":","")).GetAddressBytes() : PhysicalAddress.Parse(NewGatewayMAC.Replace(":","")).GetAddressBytes();
+            byte[] macBytes = string.IsNullOrEmpty(NewGatewayMAC) ? PhysicalAddress.Parse(GatewayMAC.Replace(":", "")).GetAddressBytes() : PhysicalAddress.Parse(NewGatewayMAC.Replace(":", "")).GetAddressBytes();
             var json = string.Empty;
 
             if (rxpk.Count > 0)
             {
                 json = JsonConvert.SerializeObject(rxpk, Formatting.None);
-                json = "{\"rxpk\":" + json + "}"; 
+                json = "{\"rxpk\":" + json + "}";
             }
             if (txpk.Count > 0)
             {
                 json = JsonConvert.SerializeObject(txpk, Formatting.None);
-                json = "{\"txpk\":" + json + "}"; 
+                json = "{\"txpk\":" + json + "}";
             }
             if (stat != null)
             {
                 json = JsonConvert.SerializeObject(stat, Formatting.None);
-                json = "{\"stat\":" + json + "}"; 
+                json = "{\"stat\":" + json + "}";
             }
 
             List<byte> data = new()
@@ -120,8 +120,8 @@ namespace PacketMultiplexer
         {
             foreach (var rx in rxpk)
             {
-                rx.rssi = - new Random().Next(90, 119);
-                rx.lsnr = - Math.Round(new Random().NextDouble() * 4, 1);                
+                rx.rssi = -new Random().Next(90, 119);
+                rx.lsnr = -Math.Round(new Random().NextDouble() * 4, 1);
             }
         }
 
@@ -130,29 +130,10 @@ namespace PacketMultiplexer
             foreach (var rx in rxpk)
             {
                 var ts = DateTime.UtcNow;
-
-                if(!string.IsNullOrEmpty(rx.time))
-                {
-                    var tsStr = rx.time;
-                    if(tsStr.EndsWith("Z"))
-                    {
-                        tsStr = tsStr[..^1];
-                        ts = DateTime.Parse(tsStr);
-                        if (Math.Abs((ts-DateTime.UtcNow).TotalSeconds) > 1.5)
-                        {
-                            ts = DateTime.UtcNow;
-                        }
-                    }
-                }
+                rx.time = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
                 var ts_midnight = new DateTime(ts.Year, ts.Month, ts.Day, 0, 0, 0, 0);
                 var elapsed_us = (ts - ts_midnight).TotalSeconds * 1e6;
-                var elapsed_us_u32 = (uint)elapsed_us;
-
-                rx.tmst = elapsed_us_u32 + tmst_offset;
-
-                //tmst_offset = rx.tmst - elapsed_us_u32;
-
-                rx.time = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+                rx.tmst = (uint)elapsed_us;
             }
         }
     }

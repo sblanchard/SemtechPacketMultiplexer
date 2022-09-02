@@ -1,6 +1,7 @@
 ﻿using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
 using System.Text;
+using PacketMultiplexer.Packets;
 
 namespace PacketMultiplexer
 {

@@ -1,6 +1,6 @@
 ﻿using System.Net;
 
-namespace PacketMultiplexer
+namespace PacketMultiplexer.Packets
 {
     public interface IPacket
     {

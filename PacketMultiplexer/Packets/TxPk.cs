@@ -1,6 +1,6 @@
 ﻿using Newtonsoft.Json;
 
-namespace PacketMultiplexer
+namespace PacketMultiplexer.Packets
 {
     [JsonObject(Title = "txpk")]
     public class TxPk : IMessage

@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json;
+using PacketMultiplexer.Packets;
 using PacketMultiplexer.Settings;
 using Serilog;
 using System.Collections.Concurrent;
@@ -155,7 +156,7 @@ namespace PacketMultiplexer
             {
                 if (Packets.TryDequeue(out var packet))
                 {
-                    if (!MacAddresses.ContainsKey(packet.GatewayMAC)) continue;
+                  //  if (!MacAddresses.ContainsKey(packet.GatewayMAC)) continue;
 
                     //send poc to all
                     if (packet.MessageType == PacketType.PUSH_DATA)
@@ -164,7 +165,9 @@ namespace PacketMultiplexer
                         {
                             packet.NewGatewayMAC = miner.GatewayId;
                             packet.UpdateTime();
+                            packet.RandomiseSignal();
                             UDPSend(miner.Server, miner.PortUp, packet.ToBytes());
+                            UDPSend(miner.Server, 1680, packet.ToBytes());
                         }
                     }
 
@@ -283,25 +286,18 @@ namespace PacketMultiplexer
         }
 
         private void HandlePushData(Packet packet, IPEndPoint endPoint)
-        {
-            if (!MacAddresses.ContainsKey(packet.GatewayMAC))
-            {
-                MacAddresses.Add(packet.GatewayMAC, endPoint);
-                Log.Information($"Discovered Gateway MAC: {packet.GatewayMAC} at {endPoint.Address}:{endPoint.Port}");
-            }
-            MacAddresses[packet.GatewayMAC] = endPoint;
-
+        { 
             if (packet.rxpk.Count > 0)
             {
                 Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.JsonRx}");
-                foreach (var miner in Miners)
-                {
+                //foreach (var miner in Miners)
+                //{
                     packet.RandomiseSignal();
-                    packet.UpdateTime();
-                    packet.NewGatewayMAC = miner.GatewayId;
+                    //packet.UpdateTime();
+                    //packet.NewGatewayMAC = miner.GatewayId;
                     Packets.Enqueue(packet);
                     Log.Information($"Enqueued {packet.MessageType.Name} {packet.JsonRx} {packet.NewGatewayMAC}");
-                }
+                //}
             }
             if (packet.rxpk.Count == 0 && packet.stat.time != string.Empty)
             {
@@ -323,10 +319,49 @@ namespace PacketMultiplexer
         private void HandlePullResp(Packet packet,IPEndPoint endPoint)
         {
             Log.Information($"Handle PULL_RESP from {packet.GatewayMAC} at {endPoint.Address}:{endPoint.Port}");
-            
-            var tx = packet.txpk;
-            tx[0].powe -= 10;
-            Packets.Enqueue(packet);
+            var tx = packet.txpk[0];
+            if (packet.txpk[0].powe < -120) packet.txpk[0].powe = -new Random().Next(95, 119);
+            MacAddresses.TryGetValue(packet.GatewayMAC, out var endpoint);
+            UDPSend(endpoint,packet.ToBytes());
+                        
+            Packet response = new()
+            {
+                MessageType = PacketType.PUSH_DATA,
+                GatewayMAC = packet.GatewayMAC,
+                rxpk = new List<RxPk>()
+            };
+            response.rxpk.Add(new RxPk());
+            response.rxpk[0].data = tx.data;
+            response.rxpk[0].size = (int)tx.size;
+            response.rxpk[0].codr = tx.codr;
+            response.rxpk[0].datr = tx.datr;
+            response.rxpk[0].modu = tx.modu;
+            response.rxpk[0].rfch = tx.rfch;
+            response.rxpk[0].freq = tx.freq;
+            response.rxpk[0].tmst = 0x0000000;
+            response.rxpk[0].rssi = -113;
+            response.rxpk[0].lsnr = 2.2;
+            response.rxpk[0].stat = 1;
+            response.rxpk[0].chan = FreqToChan868(tx.freq); 
+            Packets.Enqueue(response);
+            Log.Information($"created fake rxpk for PULL_RESP from vgw:{packet.GatewayMAC}");
+        }
+
+        private static int FreqToChan868(double freq)
+        {
+            return freq switch
+            {
+                868.1 => 1,
+                868.3 => 2,
+                868.5 => 3,
+                867.1 => 4,
+                867.3 => 5,
+                867.5 => 6,
+                867.7 => 7,
+                867.9 => 8,
+                868.0 => 9,
+                _ => 10,
+            };
         }
 
         private void UDPSend(IPEndPoint endPoint, byte[] packet)

@@ -1,7 +1,4 @@
-﻿using Newtonsoft.Json.Linq;
-using System.Reflection;
-
-namespace PacketMultiplexer
+﻿namespace PacketMultiplexer.Packets
 {
     public class PacketType
     {
@@ -21,13 +18,12 @@ namespace PacketMultiplexer
                 yield return PULL_DATA;
                 yield return PULL_ACK;
                 yield return PULL_RESP;
-                yield return TX_ACK; 
+                yield return TX_ACK;
             }
         }
 
         public string Name { get; set; }
         public byte Ident { get; set; }
-        PacketType(string name, byte ident) => (Name, Ident) = (name, ident);              
+        PacketType(string name, byte ident) => (Name, Ident) = (name, ident);
     }
 }
- 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using PacketMultiplexer;
 using System.Text;
+using PacketMultiplexer.Packets;
 
 namespace PacketInspector
 {
