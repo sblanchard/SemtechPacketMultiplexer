@@ -29,7 +29,7 @@ namespace PacketMultiplexer
 
            
 
-            Thread.Sleep(1000);
+            Thread.Sleep(333);
 
             foreach (var gateway in VirtualGateways)
             {

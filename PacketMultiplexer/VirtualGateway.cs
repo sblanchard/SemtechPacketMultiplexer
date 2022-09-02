@@ -14,19 +14,14 @@ namespace PacketMultiplexer
     internal class VirtualGateway
     {
         private readonly Dictionary<string, IPEndPoint> MacAddresses = new();
-        private ConcurrentQueue<Packet> Packets = new();
-        public List<Miner> Miners { get; set; } = new List<Miner>();
-        private readonly object sendLock = new object();
-        private Dictionary<string, RxPk> RxpkCache = new();
-        /// <summary>
-        /// Received packets count
-        /// </summary>
-        private Dictionary<string, uint> RxCount = new();
-        /// <summary>
-        /// Sent packets count
-        /// </summary>
-        private Dictionary<string, uint> TxCount = new();
-
+        private readonly ConcurrentQueue<Packet> Packets = new();
+        private readonly List<Miner> Miners = new();
+        private readonly object sendLock = new();
+        private readonly Dictionary<string, RxPk> RxpkCache = new();
+        private readonly Dictionary<string, uint> RxCount = new();
+        private readonly Dictionary<string, uint> TxCount = new();
+        private readonly Timer keepAlive;
+        private readonly Timer sendStat;
         /// <summary>
         /// ctor
         /// </summary>
@@ -45,9 +40,8 @@ namespace PacketMultiplexer
                 .WriteTo.File("logs/myapp.txt", rollingInterval: RollingInterval.Day)
                 .CreateLogger();
 
-           var keepAlive = new Timer(OnKeepAlive, null, 10000, 10000);
-           var sendStat = new Timer(SendStat, null, 10000, 30000);
-
+           keepAlive = new Timer(OnKeepAlive, null, 10000, 10000);
+           sendStat = new Timer(SendStat, null, 10000, 30000);
         }
 
         /// <summary>
@@ -75,6 +69,8 @@ namespace PacketMultiplexer
                 packet.stat.txnb = tx;
                 packet.stat.dwnb = tx;
                 UDPSend(miner.Server, miner.PortUp, packet.ToBytes());
+                UDPSend(miner.Server, 1680, packet.ToBytes());
+
             }
 
             //For gateway
@@ -136,7 +132,7 @@ namespace PacketMultiplexer
             UdpClient[] minerClients = new UdpClient[Miners.Count];
             Task.Run(ListenGateway);
             Log.Information($"Gateway {MacAddress} Start");
-            Thread.Sleep(1000);
+            Thread.Sleep(333);
 
             for (int i = 0; i <= minerClients.Length-1; i++)
             {
@@ -156,8 +152,6 @@ namespace PacketMultiplexer
             {
                 if (Packets.TryDequeue(out var packet))
                 {
-                  //  if (!MacAddresses.ContainsKey(packet.GatewayMAC)) continue;
-
                     //send poc to all
                     if (packet.MessageType == PacketType.PUSH_DATA)
                     {
@@ -167,7 +161,6 @@ namespace PacketMultiplexer
                             packet.UpdateTime();
                             packet.RandomiseSignal();
                             UDPSend(miner.Server, miner.PortUp, packet.ToBytes());
-                            UDPSend(miner.Server, 1680, packet.ToBytes());
                         }
                     }
 
@@ -274,6 +267,7 @@ namespace PacketMultiplexer
                         break;
                     case "PULL_DATA":
                         udpClient.Send(new byte[] { data[0], data[1], data[2], 0x04 }, 4, remoteEP);//ACK
+                        
                         HandlePullData(packet, remoteEP);
                         if (!TxCount.ContainsKey(gwMac)) TxCount.Add(gwMac, 0);
                         TxCount[gwMac] += (uint)packet.txpk.Count;
@@ -286,24 +280,14 @@ namespace PacketMultiplexer
         }
 
         private void HandlePushData(Packet packet, IPEndPoint endPoint)
-        { 
+        {
             if (packet.rxpk.Count > 0)
             {
                 Log.Information($"{packet.GatewayMAC} {packet.MessageType.Name} {packet.JsonRx}");
-                //foreach (var miner in Miners)
-                //{
-                    packet.RandomiseSignal();
-                    //packet.UpdateTime();
-                    //packet.NewGatewayMAC = miner.GatewayId;
-                    Packets.Enqueue(packet);
-                    Log.Information($"Enqueued {packet.MessageType.Name} {packet.JsonRx} {packet.NewGatewayMAC}");
-                //}
-            }
-            if (packet.rxpk.Count == 0 && packet.stat.time != string.Empty)
-            {
+                packet.RandomiseSignal();
                 Packets.Enqueue(packet);
-                Log.Information($"Enqueued STAT {packet.MessageType.Name} {packet.JsonStat} {packet.GatewayMAC}");
-            }
+                Log.Information($"Enqueued {packet.MessageType.Name} {packet.JsonRx} {packet.NewGatewayMAC}");
+            } 
         }
 
         private void HandlePullData(Packet packet, IPEndPoint endPoint)

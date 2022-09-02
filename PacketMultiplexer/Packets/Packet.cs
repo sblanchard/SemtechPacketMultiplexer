@@ -65,8 +65,6 @@ namespace PacketMultiplexer.Packets
 
     public class Packet : IPacket
     {
-        private uint tmst_offset = 0;
-
         public PacketType MessageType { get; set; }
         public int Protocol { get; set; }
         public byte[] RandomToken { get; set; }
@@ -124,16 +122,23 @@ namespace PacketMultiplexer.Packets
                 rx.lsnr = -Math.Round(new Random().NextDouble() * 4, 1);
             }
         }
-
+        /// <summary>
+        /// modify tmst (Internal timestamp of "RX finished" event (32b unsigned)) to be aligned to since midnight UTC
+        /// this will be discontinuous once a day but that is basically same effect as a gateway reset / forwarder reboot
+        /// acceptable for proof-of-concept
+        /// also note 'time' is only available if there is a gps connected BUT time could be way off if there is a poor GPS fix
+        /// therefore compare to current time and only trust 'time' field if within 1.5s of now.  If 'time' is not available or
+        /// cannot be trusted, use the current time as assumed arrival time
+        /// </summary>
         internal void UpdateTime()
         {
             foreach (var rx in rxpk)
             {
-                var ts = DateTime.UtcNow;
+                var utcnow = DateTime.UtcNow;
                 rx.time = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
-                var ts_midnight = new DateTime(ts.Year, ts.Month, ts.Day, 0, 0, 0, 0);
-                var elapsed_us = (ts - ts_midnight).TotalSeconds * 1e6;
-                rx.tmst = (uint)elapsed_us;
+                var midnight = new DateTime(utcnow.Year, utcnow.Month, utcnow.Day, 0, 0, 0, 0);
+                var elapsed = (utcnow - midnight).TotalSeconds;
+                rx.tmst = (uint)elapsed;
             }
         }
     }
