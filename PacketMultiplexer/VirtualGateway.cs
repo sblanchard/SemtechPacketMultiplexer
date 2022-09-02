@@ -262,6 +262,10 @@ namespace PacketMultiplexer
                             Log.Information("\t POC POC POC");
                             Log.Information(packet.JsonRx);
                         }
+                        else // process other data packets
+                        {
+                            HandlePushData(packet, remoteEP);
+                        }
                         if (!RxCount.ContainsKey(gwMac)) RxCount.Add(gwMac, 0);
                         RxCount[gwMac] += (uint)packet.rxpk.Count;
                         break;
